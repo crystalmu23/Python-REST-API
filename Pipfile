@@ -5,10 +5,10 @@ name = "pypi"
 
 [packages]
 flask = "*"
-pytest = "*"
 requests = "*"
+pytest = "*"
 
 [dev-packages]
 
 [requires]
-python_version = "3.12"
+python_version = "3.14"
