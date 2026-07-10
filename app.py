@@ -1,51 +1,101 @@
-# Inventory Management System Portal
+#!/usr/bin/env python3
+import requests
+from flask import Flask, jsonify, request
 
-A robust Python Flask REST API backend paired with an interactive terminal CLI engine. This system allows administrators to manage inventory through full CRUD operations and fetch real-time product metadata using the OpenFoodFacts API.
+app = Flask(__name__)
 
-## Environmental Configuration & Dependencies
+# Simulated in-memory database array with seed data
+inventory_db = [
+    {
+        "id": 1,
+        "product_name": "Organic Almond Milk",
+        "brands": "Silk",
+        "ingredients_text": "Filtered water, almonds, cane sugar",
+        "quantity": 50,
+        "price": 3.99
+    }
+]
+current_id = 1
 
-This project uses `pipenv` for deterministic, locked virtual environment builds.
+@app.route('/inventory', methods=['GET'])
+def get_all_inventory():
+    return jsonify(inventory_db), 200
 
-### Setup Instructions
-```bash
-# 1. Clone your repository (if running on a new machine)
-# git clone <your-repo-url> && cd inventory_system
+@app.route('/inventory/<int:item_id>', methods=['GET'])
+def get_single_item(item_id):
+    item = next((i for i in inventory_db if i["id"] == item_id), None)
+    if not item:
+        return jsonify({"error": "Item not found"}), 404
+    return jsonify(item), 200
 
-# 2. Install all required dependencies from the Pipfile
-```Bash
-pipenv install
-```
+@app.route('/inventory', methods=['POST'])
+def create_item():
+    global current_id
+    data = request.get_json() or {}
+    if "product_name" not in data:
+        return jsonify({"error": "Missing required field: product_name"}), 400
+        
+    current_id += 1
+    new_item = {
+        "id": current_id,
+        "product_name": data.get("product_name"),
+        "brands": data.get("brands", "Unknown"),
+        "ingredients_text": data.get("ingredients_text", "N/A"),
+        "quantity": data.get("quantity", 0),
+        "price": data.get("price", 0.0)
+    }
+    inventory_db.append(new_item)
+    return jsonify(new_item), 201
 
-## Running the Application Ecosystem
-1. Launch the Backend REST API Server
-Run this command in your first terminal window to start the microservice node:
-```Bash
-pipenv run python app.py
-```
+@app.route('/inventory/<int:item_id>', methods=['PATCH'])
+def update_item(item_id):
+    data = request.get_json() or {}
+    item = next((i for i in inventory_db if i["id"] == item_id), None)
+    if not item:
+        return jsonify({"error": "Item not found"}), 404
+        
+    if "quantity" in data:
+        item["quantity"] = int(data["quantity"])
+    if "price" in data:
+        item["price"] = float(data["price"])
+    if "product_name" in data:
+        item["product_name"] = data["product_name"]
+        
+    return jsonify(item), 200
 
-- The server will initialize locally at http://127.0.0.1:5000 with hot-reload Debug Mode activated.
+@app.route('/inventory/<int:item_id>', methods=['DELETE'])
+def delete_item(item_id):
+    global inventory_db
+    item = next((i for i in inventory_db if i["id"] == item_id), None)
+    if not item:
+        return jsonify({"error": "Item not found"}), 404
+        
+    inventory_db = [i for i in inventory_db if i["id"] != item_id]
+    return jsonify({"message": f"Successfully deleted item {item_id}"}), 200
 
-2. Launch the Frontend Interactive CLI Console
-Open a second, separate terminal window and connect to your live administrative interface dashboard:
+@app.route('/api/external/fetch', methods=['GET'])
+def fetch_external_product():
+    barcode = request.args.get('barcode')
+    if not barcode:
+        return jsonify({"error": "Barcode parameter is required"}), 400
+        
+    url = f"https://world.openfoodfacts.org/api/v0/product/{barcode}.json"
+    try:
+        response = requests.get(url, timeout=5)
+        if response.status_code == 200:
+            api_data = response.json()
+            if api_data.get("status") == 1:
+                prod = api_data.get("product", {})
+                extracted = {
+                    "product_name": prod.get("product_name", "Unknown External Item"),
+                    "brands": prod.get("brands", "Unknown Brand"),
+                    "ingredients_text": prod.get("ingredients_text", "No ingredients provided.")
+                }
+                return jsonify(extracted), 200
+            return jsonify({"error": "Product not found in OpenFoodFacts database"}), 404
+    except requests.exceptions.RequestException:
+        return jsonify({"error": "External API service unavailable"}), 503
+    return jsonify({"error": "Product not found"}), 404
 
-```Bash
-pipenv run python cli.py
-```
-
-## REST API Endpoints Specification
-- All data transfers use standardized JSON data payloads over standard HTTP methods:
-
-- HTTP Method	API Endpoint Path	Operational Scope Behavior	Status Codes
-- GET	/inventory	Fetches the complete active inventory list	200 OK
-- GET	/inventory/<id>	Extracts a single target product matching the reference ID	200 OK / 404 Not Found
-- POST	/inventory	Appends a brand new item entry directly to tracking storage	201 Created / 400 Bad Request
-- PATCH	/inventory/<id>	Modifies target stock counts or retail item valuation points	200 OK / 404 Not Found
-- DELETE	/inventory/<id>	Permanently purges a dead product entry line from memory	200 OK / 404 Not Found
-- GET	/api/external/fetch	Proxies OpenFoodFacts database via ?barcode=<number>	200 OK / 404 / 503
-## Automated Testing Validation Suite
-- To verify endpoint data contracts and API logic without making live external requests, a robust test suite is included using pytest and unittest.mock.
-
-- Run the comprehensive assertion sweeps using:
-```Bash
-pipenv run pytest -v
-```
+if __name__ == '__main__':
+    app.run(port=5000, debug=True)
